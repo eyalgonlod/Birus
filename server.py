@@ -36,6 +36,18 @@ def handle_screenshot(response, request=None):
     print("Screenshot saved.")
 
 
+
+#screen record
+def get_time_of_record(request):
+    time = int(input("Please enter the time of record: "))
+    request["duration"] = time
+    return request
+
+def save_screen_record(response, request=None):
+    with open('received_record.mp4', 'wb') as f:
+        f.write(response)
+        print("record saved.")
+
 actions = {
     "command": {
         "input": get_command_input,
@@ -48,6 +60,10 @@ actions = {
     "file": {
         "input": get_file_name,
         "output": handle_file
+    },
+    "record": {
+        "input": get_time_of_record,
+        "output": save_screen_record
     }
 }
 
@@ -55,7 +71,7 @@ actions = {
 def get_user_input():
     request = {
     }
-    action = input("Please enter the wanted action (command/screenshot/file): ")
+    action = input("Please enter the wanted action (command/screenshot/file/record): ")
     request["type"] = action
     if action in actions:
         actions[action]["input"](request)

